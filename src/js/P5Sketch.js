@@ -1,11 +1,14 @@
 import React, { useRef, useEffect } from "react";
 //import PlayIcon from "./PlayIcon.js";
 import ShuffleArray from "./ShuffleArray.js";
+import BackgroundHexagon from './BackgroundHexagon.js';
 import "./globals";
 import "p5/lib/addons/p5.sound";
 import * as p5 from "p5";
 import audio from "../audio/hexagons-no-1.ogg";
-import cueSet1 from "./cueSet1.js";
+import midi from "../audio/hexagons-no-1.mid";
+import * as Tone from 'tone'
+import { Midi } from '@tonejs/midi'
 
 const P5Sketch = () => {
   const sketchRef = useRef();
@@ -17,7 +20,7 @@ const P5Sketch = () => {
 
     p.canvasHeight = window.innerHeight;
 
-    p.song = null;
+    p.isLoaded = false;
 
     p.cueSet1Completed = [];
 
@@ -41,58 +44,96 @@ const P5Sketch = () => {
       b: 0,
     };
 
+    p.noteSet1 = [];
+
+    p.noteSet1CurrentCue = 0;
+
+    p.hexSizeDivider = 16;
+
+    p.innerHexCount = 1;
+
+    p.noteSet2 = [];
+
+    p.noteSet2CurrentCue = 1;
+    
+    p.backgroundHexagons = [];
+
     p.preload = () => {
+      
       p.song = p.loadSound(audio);
+      Tone.Transport.PPQ = 3840 * 4;
+      Midi.fromUrl(midi).then(
+        function(result) {
+          p.noteSet1 = result.tracks[3].notes;//Sampler 1
+          p.noteSet2 = result.tracks[8].notes;//Synth 3
+          p.loadColours();
+          p.player = new Tone.Player(audio).toMaster();
+          p.player.sync().start(0);
+          let lastTicks = -1;
+          for (let i = 0; i < p.noteSet1.length; i++) {
+            const note = p.noteSet1[i],
+              { ticks } = note;
+            if(ticks !== lastTicks){
+              Tone.Transport.schedule(
+                () => {
+                  p.executeNoteSet1(p.noteSet1CurrentCue);
+                  p.noteSet1CurrentCue++
+                }, 
+                note.time
+              );
+              lastTicks = ticks;
+            }
+          }
+
+          lastTicks = -1;
+          for (let i = 0; i < p.noteSet2.length; i++) {
+            const note = p.noteSet2[i],
+              { time, ticks, duration } = note;
+            if(ticks !== lastTicks){
+              Tone.Transport.schedule(
+                () => {
+                  p.executeNoteSet2(p.noteSet2CurrentCue);
+                  p.noteSet2CurrentCue++
+                }, 
+                time
+              );
+              lastTicks = ticks;
+            }
+          }        
+          p.isLoaded = true;
+        }
+      );
     };
 
     p.setup = () => {
-      p.frameRate(30);
       p.canvas = p.createCanvas(p.canvasWidth, p.canvasHeight);
-      let colours = ShuffleArray(p.coloursArray);
-      p.strokeColour.r = colours[0];
-      p.strokeColour.g = colours[1];
-      p.strokeColour.b = colours[2];
-      colours = ShuffleArray(p.coloursArray);
-      p.fillColour.r = colours[0];
-      p.fillColour.g = colours[1];
-      p.fillColour.b = colours[2];
-
-      p.song.onended(p.logCredits);
-
-      for (let i = 0; i < cueSet1.length; i++) {
-        let colours = ShuffleArray(p.coloursArray);
-        let colourSet = {
-          strokeColour: {
-            r: colours[0],
-            g: colours[1],
-            b: colours[2],
-          },
-        };
-        colours = ShuffleArray(p.coloursArray);
-        colourSet.fillColour = {
-          r: colours[0],
-          g: colours[1],
-          b: colours[2],
-        };
-        p.colourSets.push(colourSet);
-      }
-
-      for (let i = 0; i < cueSet1.length; i++) {
-        p.song.addCue(cueSet1[i].time, p.executeCueSet1, i);
-      }
+      p.background(0);
+      p.frameRate(60);
+      
     };
 
     p.draw = () => {
-      p.background(0);
-      if (p.song.isPlaying()) {
-        p.animateHexagons(p.width / 2, p.height / 2, p.width / 18);
+      if (p.player.state === 'started' && p.isLoaded) {
+        p.background(0);
+        for (let i = 0; i < p.backgroundHexagons.length; i++) {
+            p.backgroundHexagons[i].update();
+            p.backgroundHexagons[i].draw();
+            if (p.backgroundHexagons[i].radius > 2200) {
+              //p.backgroundHexagons[i].splice(i, 1);
+            }
+        }
+        p.animateHexagons1(p.width / 2, p.height / 2, p.width / p.hexSizeDivider);
         p.i = p.i + 16;
       }
     };
 
-    p.executeCueSet1 = (currentCue) => {
+    p.executeNoteSet1 = (currentCue) => {
       if (!p.cueSet1Completed.includes(currentCue)) {
         p.cueSet1Completed.push(currentCue);
+        if(currentCue > 78){
+          p.hexSizeDivider = 12;
+          p.innerHexCount = 2;
+        }
         p.i = 0;
         p.strokeColour.r = p.colourSets[currentCue].strokeColour.r;
         p.strokeColour.g = p.colourSets[currentCue].strokeColour.g;
@@ -103,14 +144,16 @@ const P5Sketch = () => {
       }
     };
 
-    p.getColourValue = (value, negation) => {
-      if (value === "variable") {
-        return 255 - negation;
+    p.executeNoteSet2 = (currentCue) => {
+      if (!p.cueSet2Completed.includes(currentCue)) {
+        p.cueSet2Completed.push(currentCue);
+        const colour = currentCue === 39 ? 0 : p.color(p.random(255), p.random(255), p.random(255)),
+          hasFill = (currentCue > 26 && currentCue <= 39);
+        p.backgroundHexagons.push(new BackgroundHexagon(p, p.width / 2, p.height / 2, colour, hasFill));
       }
-      return value;
     };
 
-    p.animateHexagons = (x, y, r) => {
+    p.animateHexagons1 = (x, y, r) => {
       let count = p.i - 1;
       while (count < p.i) {
         let colourAdjuster = 255 - count;
@@ -124,16 +167,19 @@ const P5Sketch = () => {
           p.getColourValue(p.fillColour.r, count),
           p.getColourValue(p.fillColour.g, count),
           p.getColourValue(p.fillColour.b, count),
-          63
+          63 + (count / 8)
         );
-        p.hexagon(x + count, y + count, r);
-        p.hexagon(x + count, y - count, r);
-        p.hexagon(x + count, y, r);
-        p.hexagon(x - count, y, r);
-        p.hexagon(x - count, y + count, r);
-        p.hexagon(x - count, y - count, r);
-        p.hexagon(x, y + count, r);
-        p.hexagon(x, y - count, r);
+        for(let i = 1; i <= p.innerHexCount; i++) {
+          p.hexagon(x + count, y + count, r / i);
+          p.hexagon(x + count, y - count, r / i);
+          p.hexagon(x + count, y, r / i);
+          p.hexagon(x - count, y, r / i);
+          p.hexagon(x - count, y + count, r / i);
+          p.hexagon(x - count, y - count, r / i);
+          p.hexagon(x, y + count, r / i);
+          p.hexagon(x, y - count, r / i);
+        }
+        
         count++;
       }
     };
@@ -151,18 +197,50 @@ const P5Sketch = () => {
       p.endShape(p.CLOSE);
     };
 
+    p.loadColours = () => {
+      let colours = ShuffleArray(p.coloursArray);
+      p.strokeColour.r = colours[0];
+      p.strokeColour.g = colours[1];
+      p.strokeColour.b = colours[2];
+      colours = ShuffleArray(p.coloursArray);
+      p.fillColour.r = colours[0];
+      p.fillColour.g = colours[1];
+      p.fillColour.b = colours[2];
+
+      for (let i = 0; i < p.noteSet1.length; i++) {
+        let colours = ShuffleArray(p.coloursArray);
+        let colourSet = {
+          strokeColour: {
+            r: colours[0],
+            g: colours[1],
+            b: colours[2],
+          },
+        };
+        colours = ShuffleArray(p.coloursArray);
+        colourSet.fillColour = {
+          r: colours[0],
+          g: colours[1],
+          b: colours[2],
+        };
+        p.colourSets.push(colourSet);
+      }
+    }
+
+    p.getColourValue = (value, negation) => {
+      if (value === "variable") {
+        return 255 - negation;
+      }
+      return value;
+    };
+
     p.mousePressed = () => {
-      if (p.song.isPlaying()) {
-        p.song.pause();
-      } else {
-        if (
-          parseInt(p.song.currentTime()) >= parseInt(p.song.buffer.duration)
-        ) {
-          p.reset();
-        }
-        //document.getElementById("play-icon").classList.add("fade-out");
-        p.canvas.addClass("fade-in");
-        p.song.play();
+      if (p.player.state == "started") {
+        // Use the Tone.Transport to pause audio
+        Tone.Transport.pause();
+      } 
+      else if (p.player.state == "stopped") {
+        // Use the Tone.Transport to start again
+        Tone.Transport.start();
       }
     };
 
