@@ -58,14 +58,23 @@ const P5Sketch = () => {
     
     p.backgroundHexagons = [];
 
+    p.outroHexagons = [];
+
+    p.outroFills = [];
+    
+    p.outroStrokes = [];
+
     p.preload = () => {
-      
       p.song = p.loadSound(audio);
       Tone.Transport.PPQ = 3840 * 4;
+      p.randomColor = require('randomcolor');
+      p.outroFills = p.randomColor({luminosity: 'dark', count: 14, format: 'rgbArray'});
+      p.outroStrokes = p.randomColor({luminosity: 'bright', count: 14, format: 'rgbArray'});
       Midi.fromUrl(midi).then(
         function(result) {
+          
           p.noteSet1 = result.tracks[3].notes;//Sampler 1
-          p.noteSet2 = result.tracks[8].notes;//Synth 3
+          p.noteSet2 = result.tracks[7].notes;//Synth 3
           p.loadColours();
           p.player = new Tone.Player(audio).toMaster();
           p.player.sync().start(0);
@@ -88,7 +97,7 @@ const P5Sketch = () => {
           lastTicks = -1;
           for (let i = 0; i < p.noteSet2.length; i++) {
             const note = p.noteSet2[i],
-              { time, ticks, duration } = note;
+              { time, ticks } = note;
             if(ticks !== lastTicks){
               Tone.Transport.schedule(
                 () => {
@@ -108,32 +117,33 @@ const P5Sketch = () => {
     p.setup = () => {
       p.canvas = p.createCanvas(p.canvasWidth, p.canvasHeight);
       p.background(0);
-      p.frameRate(60);
+      p.frameRate(30);
       
     };
 
+    p.redrawBG = true;
+
     p.draw = () => {
       if (p.player.state === 'started' && p.isLoaded) {
-        p.background(0);
+        if(p.redrawBG){
+          p.background(0);
+        }
         for (let i = 0; i < p.backgroundHexagons.length; i++) {
             p.backgroundHexagons[i].update();
             p.backgroundHexagons[i].draw();
-            if (p.backgroundHexagons[i].radius > 2200) {
-              //p.backgroundHexagons[i].splice(i, 1);
-            }
         }
         p.animateHexagons1(p.width / 2, p.height / 2, p.width / p.hexSizeDivider);
         p.i = p.i + 16;
+        for (let i = 0; i < p.outroHexagons.length; i++) {
+            p.outroHexagons[i].update();
+            p.outroHexagons[i].draw();
+        }
       }
     };
 
     p.executeNoteSet1 = (currentCue) => {
       if (!p.cueSet1Completed.includes(currentCue)) {
         p.cueSet1Completed.push(currentCue);
-        if(currentCue > 78){
-          p.hexSizeDivider = 12;
-          p.innerHexCount = 2;
-        }
         p.i = 0;
         p.strokeColour.r = p.colourSets[currentCue].strokeColour.r;
         p.strokeColour.g = p.colourSets[currentCue].strokeColour.g;
@@ -141,14 +151,46 @@ const P5Sketch = () => {
         p.fillColour.r = p.colourSets[currentCue].fillColour.r;
         p.fillColour.g = p.colourSets[currentCue].fillColour.g;
         p.fillColour.b = p.colourSets[currentCue].fillColour.b;
+        if(currentCue > 78){
+          p.hexSizeDivider = 12;
+          p.innerHexCount = 2;
+        }
+        if(currentCue >= 119){
+          p.redrawBG = false;
+          p.strokeColour.r = p.outroStrokes[currentCue-119][0];
+          p.strokeColour.g = p.outroStrokes[currentCue-119][1];
+          p.strokeColour.b = p.outroStrokes[currentCue-119][2];
+          p.fillColour.r = p.outroFills[currentCue-119][0];
+          p.fillColour.g = p.outroFills[currentCue-119][1];
+          p.fillColour.b = p.outroFills[currentCue-119][2];
+        }
+        if(currentCue === 132){
+          const delayAmount = parseInt(p.noteSet1[p.noteSet1.length - 1].duration * 1000) / 24;
+          let size = (p.width / p.hexSizeDivider) * 4;
+          const colours = p.randomColor({count: 24});
+          for (let i = 0; i < 24; i++) {
+            setTimeout(
+                function () {
+                  const colour = p.color(colours[i]);
+                  p.outroHexagons.push(new BackgroundHexagon(p, p.width / 2, p.height / 2, colour, true, size));
+                  p.hexagon(p.width / 2, p.height / 2, size);
+                  size = size - size / 24;
+                },
+                (delayAmount * i)
+            );
+          }
+        }
       }
     };
 
     p.executeNoteSet2 = (currentCue) => {
       if (!p.cueSet2Completed.includes(currentCue)) {
         p.cueSet2Completed.push(currentCue);
-        const colour = currentCue === 39 ? 0 : p.color(p.random(255), p.random(255), p.random(255)),
-          hasFill = (currentCue > 26 && currentCue <= 39);
+        if(currentCue % 9 === 1){
+          p.backgroundHexagons = [];
+        } 
+        const colour = currentCue === 27 ? 0 : p.color(p.random(255), p.random(255), p.random(255)),
+          hasFill = (currentCue > 18 && currentCue <= 27);
         p.backgroundHexagons.push(new BackgroundHexagon(p, p.width / 2, p.height / 2, colour, hasFill));
       }
     };
@@ -156,7 +198,6 @@ const P5Sketch = () => {
     p.animateHexagons1 = (x, y, r) => {
       let count = p.i - 1;
       while (count < p.i) {
-        let colourAdjuster = 255 - count;
         p.strokeWeight(p.width / 288);
         p.stroke(
           p.getColourValue(p.strokeColour.r, count),
@@ -198,33 +239,25 @@ const P5Sketch = () => {
     };
 
     p.loadColours = () => {
-      let colours = ShuffleArray(p.coloursArray);
-      p.strokeColour.r = colours[0];
-      p.strokeColour.g = colours[1];
-      p.strokeColour.b = colours[2];
-      colours = ShuffleArray(p.coloursArray);
-      p.fillColour.r = colours[0];
-      p.fillColour.g = colours[1];
-      p.fillColour.b = colours[2];
-
       for (let i = 0; i < p.noteSet1.length; i++) {
-        let colours = ShuffleArray(p.coloursArray);
-        let colourSet = {
+        const colours1 = ShuffleArray(p.coloursArray);
+        const colourSet = {
           strokeColour: {
-            r: colours[0],
-            g: colours[1],
-            b: colours[2],
+            r: colours1[0],
+            g: colours1[1],
+            b: colours1[2],
           },
         };
-        colours = ShuffleArray(p.coloursArray);
+        const colours2 = colours1.reverse();
         colourSet.fillColour = {
-          r: colours[0],
-          g: colours[1],
-          b: colours[2],
+          r: colours2[0],
+          g: colours2[1],
+          b: colours2[2],
         };
         p.colourSets.push(colourSet);
       }
     }
+
 
     p.getColourValue = (value, negation) => {
       if (value === "variable") {
@@ -234,11 +267,11 @@ const P5Sketch = () => {
     };
 
     p.mousePressed = () => {
-      if (p.player.state == "started") {
+      if (p.player.state === "started") {
         // Use the Tone.Transport to pause audio
         Tone.Transport.pause();
       } 
-      else if (p.player.state == "stopped") {
+      else if (p.player.state === "stopped") {
         // Use the Tone.Transport to start again
         Tone.Transport.start();
       }

@@ -1,11 +1,12 @@
 export default class BackgroundHexagon  {
 
-    constructor(p5, x, y, colour, hasFill = false) {
+    constructor(p5, x, y, colour, hasFill, maxSize = 10000) {
         this.p = p5;
         this.x = x;
         this.y = y;
         this.colour = colour;
         this.hasFill = hasFill;
+        this.maxSize = maxSize;
         this.radius = 1;
     }
 
@@ -30,6 +31,8 @@ export default class BackgroundHexagon  {
     }
 
     update() {
-        this.radius = this.radius + 12;
+        if(this.radius < this.maxSize){
+            this.radius = this.radius + 16;
+        }
     }
 }
