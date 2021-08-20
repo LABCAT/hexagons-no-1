@@ -32,7 +32,7 @@ export default class BackgroundHexagon  {
 
     update() {
         if(this.radius < this.maxSize){
-            this.radius = this.radius + 16;
+            this.radius = this.radius + 20;
         }
     }
 }
